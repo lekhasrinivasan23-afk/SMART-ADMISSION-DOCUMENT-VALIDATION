@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Application Details</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/application.css') }}">   <!-- YOU add this line -->
+</head>
+<body>
+
+  <!-- ================================================================== -->
+<!-- LEKHA SECTION START: Marks Verification, Review and Reports        -->
+<!-- Needs the Jinja variable `verification` (see integration notes).   -->
+<!-- ================================================================== -->
+<div class="mv-wrapper" id="mv-wrapper"
+     data-application-id="{{ verification.application_id }}"
+     data-decision="{{ verification.final_decision.decision }}"
+     data-review-url="/application/{{ verification.application_id }}/review"
+     data-pdf-url="/application/{{ verification.application_id }}/report/pdf"
+     data-csv-url="/application/{{ verification.application_id }}/report/csv">
+
+  {# ---------- 1. MARKS COMPARISON TABLE: Application Marks vs OCR Extracted Marks ---------- #}
+  <section class="mv-card" id="mv-marks-comparison">
+    <div class="mv-card-head">
+      <h2 class="mv-title">Marks Comparison</h2>
+      <span class="mv-status mv-status--{{ verification.comparison.overall_status | lower | replace('_', '-') }}">
+        {{ verification.comparison.overall_status | replace('_', ' ') }}
+      </span>
+    </div>
+    <p class="mv-subtitle">Application Marks vs OCR Extracted Marks</p>
+
+    <div class="mv-chips">
+      <div class="mv-chip"><span class="mv-chip-num">{{ verification.comparison.summary.total_subjects }}</span> Subjects</div>
+      <div class="mv-chip mv-chip--match"><span class="mv-chip-num">{{ verification.comparison.summary.matched }}</span> Matched</div>
+      <div class="mv-chip mv-chip--mismatch"><span class="mv-chip-num">{{ verification.comparison.summary.mismatched }}</span> Mismatched</div>
+      <div class="mv-chip mv-chip--warning"><span class="mv-chip-num">{{ verification.comparison.summary.missing + verification.comparison.summary.unavailable }}</span> Missing / Unavailable</div>
+    </div>
+
+    <div class="mv-table-wrap">
+      <table class="mv-table">
+        <thead>
+          <tr>
+            <th>Subject</th>
+            <th>Application Marks</th>
+            <th>OCR Extracted Marks</th>
+            <th>Difference</th>
+            <th>Status</th>
+            <th>Remarks</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in verification.comparison.results %}
+          <tr class="{% if r.status == 'MISMATCH' %}mv-row-mismatch{% elif r.status != 'MATCH' %}mv-row-warning{% endif %}">
+            <td data-label="Subject"><strong>{{ r.subject }}</strong></td>
+            <td data-label="Application Marks">{{ r.application_marks if r.application_marks is not none else '—' }}</td>
+            <td data-label="OCR Extracted Marks">{{ r.ocr_marks if r.ocr_marks is not none else '—' }}</td>
+            <td data-label="Difference">{{ r.difference if r.difference is not none else '—' }}</td>
+            <td data-label="Status">
+              {# MATCH and MISMATCH indicators #}
+              {% if r.status == 'MATCH' %}
+                <span class="mv-badge mv-badge-match">&#10003; MATCH</span>
+              {% elif r.status == 'MISMATCH' %}
+                <span class="mv-badge mv-badge-mismatch">&#10007; MISMATCH</span>
+              {% else %}
+                <span class="mv-badge mv-badge-warning">! {{ r.status | replace('_', ' ') }}</span>
+              {% endif %}
+            </td>
+            <td data-label="Remarks">{{ r.remarks }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="6" class="mv-empty">No marks available to compare yet.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  {# ---------- 2. EXCEPTION IDENTIFICATION ---------- #}
+  <section class="mv-card" id="mv-exceptions">
+    <div class="mv-card-head">
+      <h2 class="mv-title">Exception Identification</h2>
+      <span class="mv-count">{{ verification.exceptions | length }} found</span>
+    </div>
+    {% if verification.exceptions %}
+    <div class="mv-exception-list">
+      {% for e in verification.exceptions %}
+      <article class="mv-exception-card mv-exception-card--{{ e.severity | lower }}">
+        <div class="mv-exception-top">
+          <strong class="mv-exception-subject">{{ e.subject }}</strong>
+          <span class="mv-badge mv-badge-{{ 'mismatch' if e.type == 'MISMATCH' else 'warning' }}">{{ e.type | replace('_', ' ') }}</span>
+        </div>
+        <p class="mv-exception-msg">{{ e.message }}</p>
+        <div class="mv-exception-meta">
+          <span>Application: <strong>{{ e.application_marks if e.application_marks is not none else '—' }}</strong></span>
+          <span>OCR: <strong>{{ e.ocr_marks if e.ocr_marks is not none else '—' }}</strong></span>
+          <span>Severity: <strong>{{ e.severity }}</strong></span>
+        </div>
+      </article>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="mv-empty mv-empty--ok">&#10003; No exceptions. All subject marks match the marksheet.</p>
+    {% endif %}
+  </section>
+
+  {# ---------- 3. MANUAL REVIEW QUEUE ---------- #}
+  <section class="mv-card" id="mv-review-queue">
+    <div class="mv-card-head">
+      <h2 class="mv-title">Manual Review Queue</h2>
+      <span class="mv-status mv-status--{{ verification.manual_review.status | lower | replace('_', '-') }}" data-mv="manual-status">
+        {{ verification.manual_review.status | replace('_', ' ') }}
+      </span>
+    </div>
+    {% if verification.exceptions %}
+    <ul class="mv-queue">
+      {% for e in verification.exceptions %}
+      <li class="mv-queue-item">
+        <span class="mv-queue-dot"></span>
+        <span class="mv-queue-text"><strong>{{ e.subject }}</strong> &mdash; {{ e.type | replace('_', ' ') | lower }}</span>
+      </li>
+      {% endfor %}
+    </ul>
+    <p class="mv-hint">These items need an admin to check the original marksheet before a final decision.</p>
+    {% else %}
+    <p class="mv-empty mv-empty--ok">&#10003; Nothing in the queue. Manual review is not required.</p>
+    {% endif %}
+  </section>
+
+  {# ---------- 4. ADMIN REVIEW STATUS + ACTIONS ---------- #}
+  <section class="mv-card" id="mv-admin-review">
+    <div class="mv-card-head">
+      <h2 class="mv-title">Admin Review Status</h2>
+      <span class="mv-status mv-status--{{ verification.final_decision.decision | lower | replace('_', '-') }}" data-mv="final-decision">
+        {{ verification.final_decision.decision | replace('_', ' ') }}
+      </span>
+    </div>
+
+    <dl class="mv-details">
+      <div><dt>Review status</dt><dd data-mv="manual-status-text">{{ verification.manual_review.status | replace('_', ' ') }}</dd></div>
+      <div><dt>Reviewed by</dt><dd data-mv="reviewed-by">{{ verification.manual_review.reviewed_by or '—' }}</dd></div>
+      <div><dt>Reviewed at</dt><dd data-mv="reviewed-at">{{ verification.manual_review.reviewed_at or '—' }}</dd></div>
+      <div><dt>Admin remarks</dt><dd data-mv="remarks">{{ verification.final_decision.remarks or verification.manual_review.remarks or '—' }}</dd></div>
+    </dl>
+
+    <label class="mv-label" for="mv-remarks-input">Remarks (optional)</label>
+    <textarea id="mv-remarks-input" class="mv-textarea" rows="3" maxlength="500"
+              placeholder="Add a note about your review..."></textarea>
+
+    <div class="mv-actions" id="mv-actions">
+      <button type="button" class="mv-btn mv-btn-secondary" data-action="start_review">Start Review</button>
+      <button type="button" class="mv-btn mv-btn-approve" data-action="approve">&#10003; Approve</button>
+      <button type="button" class="mv-btn mv-btn-reject" data-action="reject">&#10007; Reject</button>
+      <button type="button" class="mv-btn mv-btn-outline" data-action="request_correction">Request Correction</button>
+    </div>
+
+    {# Confirmation / error messages appear here (filled by application.js) #}
+    <div id="mv-message" class="mv-message" role="status" aria-live="polite"></div>
+  </section>
+
+  {# ---------- 5. FINAL VERIFICATION SUMMARY + DOWNLOADS ---------- #}
+  <section class="mv-card mv-summary" id="mv-final-summary">
+    <div class="mv-card-head">
+      <h2 class="mv-title">Final Verification Summary</h2>
+    </div>
+    <div class="mv-summary-grid">
+      <div class="mv-summary-item">
+        <span class="mv-summary-label">Application ID</span>
+        <span class="mv-summary-value">{{ verification.application_id }}</span>
+      </div>
+      <div class="mv-summary-item">
+        <span class="mv-summary-label">Photo Validation</span>
+        <span class="mv-status mv-status--{{ verification.photo_validation.status | lower | replace('_', '-') }}">{{ verification.photo_validation.status | replace('_', ' ') }}</span>
+      </div>
+      <div class="mv-summary-item">
+        <span class="mv-summary-label">OCR Extraction</span>
+        <span class="mv-status mv-status--{{ verification.ocr.status | lower | replace('_', '-') }}">{{ verification.ocr.status | replace('_', ' ') }}</span>
+      </div>
+      <div class="mv-summary-item">
+        <span class="mv-summary-label">Marks Comparison</span>
+        <span class="mv-status mv-status--{{ verification.comparison.overall_status | lower | replace('_', '-') }}">{{ verification.comparison.overall_status | replace('_', ' ') }}</span>
+      </div>
+      <div class="mv-summary-item">
+        <span class="mv-summary-label">Exceptions</span>
+        <span class="mv-summary-value">{{ verification.exceptions | length }}</span>
+      </div>
+      <div class="mv-summary-item">
+        <span class="mv-summary-label">Manual Review</span>
+        <span class="mv-status mv-status--{{ verification.manual_review.status | lower | replace('_', '-') }}" data-mv="manual-status">{{ verification.manual_review.status | replace('_', ' ') }}</span>
+      </div>
+      <div class="mv-summary-item mv-summary-item--wide">
+        <span class="mv-summary-label">Final Admin Decision</span>
+        <span class="mv-status mv-status--{{ verification.final_decision.decision | lower | replace('_', '-') }}" data-mv="final-decision">{{ verification.final_decision.decision | replace('_', ' ') }}</span>
+      </div>
+    </div>
+
+    <div class="mv-downloads">
+      <button type="button" class="mv-btn mv-btn-download" data-download="pdf">&#8681; Download PDF Report</button>
+      <button type="button" class="mv-btn mv-btn-download mv-btn-download--csv" data-download="csv">&#8681; Download CSV Report</button>
+    </div>
+  </section>
+
+</div>
+<!-- ================================================================== -->
+<!-- LEKHA SECTION END                                                  -->
+<!-- ================================================================== -->
+
+  <script src="{{ url_for('static', filename='js/application.js') }}"></script>   <!-- YOU add this line -->
+</body>
+</html>
